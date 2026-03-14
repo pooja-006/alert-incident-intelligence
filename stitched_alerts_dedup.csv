@@ -1,0 +1,31 @@
+source,organization,device,alert_type,severity,timestamp
+meraki,Ambient Enterprises - Johnson Barrow,JB-CLACKAMAS-FW,VPN connectivity changed,warning,2025-11-25T17:57:22.936000Z
+meraki,Ambient Enterprises,MH-BoiseOffice-MX,Client IP conflict detected,warning,2025-11-26T16:57:36.083000Z
+meraki,Ambient Enterprises - Johnson Barrow,JB-SEATTLE-FW,Client IP conflict detected,warning,2025-11-26T16:56:50.772000Z
+auvik,Ambient Enterprises DMG San Luis Obispo,DMG-SLO-AP02,Access Point Offline,Warning,2025-11-25T14:44:06.117Z
+auvik,DYOPATH Oakbrook Terrace,GigabitEthernet1/0/3 on dyoOBTextsw01.dyopath.com,Interface Status Mismatch,Warning,2025-11-25T14:52:29.787Z
+auvik,Ambient Enterprises DMG San Luis Obispo,DMG-SLO-AP02,Access Point Offline,Warning,2025-11-25T14:54:05.596Z
+auvik,Ambient Enterprises DMG San Luis Obispo,DMG-SLO-AP01,Access Point Offline,Warning,2025-11-25T14:54:05.596Z
+auvik,HVP SLHV Data Center,asa5515x-01.kslinc.net,VPN remote gateway is Lost,Critical,2025-11-25T14:54:46.402Z
+auvik,Hanover Company Azure,HAN-AZURE-ASAV,VPN remote gateway is Lost,Critical,2025-11-25T14:54:48.292Z
+auvik,DYOPATH Azure Central,asav-02.dyopathcorp.com,VPN remote gateway is Lost,Critical,2025-11-25T14:55:14.347Z
+auvik,DYOPATH Oakbrook Terrace,GigabitEthernet1/0/3 on dyoOBTextsw01.dyopath.com,Interface Status Mismatch,Warning,2025-11-25T14:55:30.805Z
+auvik,DYOPATH Oakbrook Terrace Lab/Depot,Adaptive Security Appliance 'outside' interface on dpOBTfw01.dyopathcorp.com,Internet Connection is Lost,Emergency,2025-11-25T14:55:39.089Z
+auvik,DYOPATH Oakbrook Terrace Lab/Depot,dpOBTlabsw01.dyopath.com Member 2,Network Element Offline,Emergency,2025-11-25T14:56:10.534Z
+auvik,DYOPATH Oakbrook Terrace Lab/Depot,dyoOBTdepotsw03.dyopathcorp.com,Network Element Offline,Emergency,2025-11-25T14:56:10.534Z
+auvik,DYOPATH Oakbrook Terrace Lab/Depot,dpOBTlabsw01.dyopath.com,Network Element Offline,Emergency,2025-11-25T14:56:10.534Z
+auvik,DYOPATH Oakbrook Terrace Lab/Depot,dyoOBTdepotsw02.dyopathcorp.com,Network Element Offline,Emergency,2025-11-25T14:56:10.534Z
+auvik,HVP SLHV South County,slhvSCsw02,Network Element Offline,Emergency,2025-11-25T14:56:16.341Z
+ncentral,Ocean Point Terminals (LTB),LBTAMAG01,Disk,Failed,2025-11-23 08:19:01
+ncentral,Wyffels,AmesUtility,Agent Status,Normal,2025-11-25 08:36:16
+ncentral,Wedgewood Pharmacy,NJ-EX01,Exchange Database 2016,Failed,2025-11-25 08:31:08
+ncentral,Wyffels,AmesUtility,Connectivity,Normal,2025-11-25 08:38:09
+ncentral,Ocean Point Terminals (LTB),LBTDC001,Windows Event Log,Failed,2025-11-25 08:45:57
+ncentral,Ocean Point Terminals (LTB),HOVDC005,Windows Event Log,Failed,2025-11-25 08:50:12
+ncentral,Ambient Enterprises > Ambient Enterprises HCN (HAR),GlacierVmProd2,CPU,Failed,2025-11-25 08:40:46
+ncentral,Wyffels,DC3,CPU,Failed,2025-11-25 08:44:00
+ncentral,Ambient Enterprises > Ambient Enterprises HCN (HAR),GlacierVmProd2,CPU,Normal,2025-11-25 08:55:53
+ncentral,Signorelli Company,005-IGEL-UMS01,Memory,Normal,2025-11-25 09:23:36
+ncentral,Ocean Point Terminals (LTB),HOVDC004,Windows Event Log,Failed,2025-11-25 09:19:04
+ncentral,Wyffels,DC3,CPU,Failed,2025-11-25 09:07:28
+ncentral,Ocean Point Terminals (LTB),LBTDC001,Windows Event Log,Failed,2025-11-25 09:16:01
