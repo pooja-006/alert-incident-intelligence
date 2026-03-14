@@ -8,6 +8,44 @@ import AlertsSidebar from "./AlertsSidebar";
 
 const API_BASE = "http://localhost:8000";
 
+const FALLBACK_PIE_COLORS = ["#2563eb", "#7c3aed", "#0ea5e9", "#22c55e", "#f59e0b", "#ef4444", "#14b8a6", "#f97316"];
+const SEVERITY_COLOR_MAP = {
+  critical: "#dc2626",
+  emergency: "#b91c1c",
+  failed: "#be123c",
+  warning: "#f59e0b",
+  normal: "#22c55e",
+  resolved: "#10b981",
+  info: "#0ea5e9",
+  unknown: "#64748b",
+};
+
+function normalizeCategoryLabel(value) {
+  return String(value || "unknown").trim().toLowerCase();
+}
+
+function getCategoryColor(categoryName, index) {
+  const normalized = normalizeCategoryLabel(categoryName);
+  return SEVERITY_COLOR_MAP[normalized] || FALLBACK_PIE_COLORS[index % FALLBACK_PIE_COLORS.length];
+}
+
+function legendLabel(value) {
+  return String(value || "Unknown")
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function normalizeSeverity(value) {
+  const normalized = normalizeCategoryLabel(value);
+  if (normalized.includes("crit")) return "critical";
+  if (normalized.includes("warn")) return "warning";
+  if (normalized.includes("emerg")) return "emergency";
+  if (normalized.includes("fail")) return "failed";
+  if (normalized.includes("normal") || normalized.includes("ok") || normalized.includes("resolved")) return "normal";
+  return normalized || "unknown";
+}
+
 // ============ FILTER BAR COMPONENT ============
 function FilterBar({ allAlerts, onFilterChange, filters }) {
   const sources = useMemo(() => {
@@ -105,12 +143,10 @@ function AlertsTab({ alerts, severityCounts, deviceCounts, filteredAlerts }) {
     return result;
   }, [metricsData]);
 
-  const COLORS = ["#dc2626", "#f59e0b", "#3b82f6", "#10b981"];
-
   const severityData = useMemo(() => {
     const counts = {};
     metricsData.forEach((alert) => {
-      const severity = alert.severity || "unknown";
+      const severity = normalizeSeverity(alert.severity);
       counts[severity] = (counts[severity] || 0) + 1;
     });
     return Object.entries(counts).map(([name, value]) => ({
@@ -118,6 +154,13 @@ function AlertsTab({ alerts, severityCounts, deviceCounts, filteredAlerts }) {
       value,
     }));
   }, [metricsData]);
+
+  const severityChartData = useMemo(() => {
+    return severityData.map((item, index) => ({
+      ...item,
+      color: getCategoryColor(item.name, index),
+    }));
+  }, [severityData]);
 
   const deviceData = useMemo(() => {
     const counts = {};
@@ -190,15 +233,16 @@ function AlertsTab({ alerts, severityCounts, deviceCounts, filteredAlerts }) {
       <div className="charts-row">
         <div className="card chart-card">
           <h3>Alerts by Severity</h3>
-          {severityData.length > 0 ? (
+          {severityChartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
-                <Pie data={severityData} cx="50%" cy="50%" labelLine={false} label dataKey="value">
-                  {severityData.map((entry, idx) => (
-                    <Cell key={`cell-${idx}`} fill={COLORS[idx % 4]} />
+                <Pie data={severityChartData} cx="50%" cy="45%" outerRadius={78} labelLine={false} dataKey="value" nameKey="name">
+                  {severityChartData.map((entry, idx) => (
+                    <Cell key={`severity-cell-${idx}`} fill={entry.color} />
                   ))}
                 </Pie>
                 <Tooltip />
+                <Legend verticalAlign="bottom" iconType="circle" formatter={legendLabel} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -496,7 +540,7 @@ function AnalyticsTab({ alerts, severityCounts, deviceCounts, filteredAlerts }) 
   const severityDistribution = useMemo(() => {
     const counts = {};
     metricsData.forEach((alert) => {
-      const severity = alert.severity || "unknown";
+      const severity = normalizeSeverity(alert.severity);
       counts[severity] = (counts[severity] || 0) + 1;
     });
     return Object.entries(counts).map(([name, value]) => ({
@@ -504,6 +548,13 @@ function AnalyticsTab({ alerts, severityCounts, deviceCounts, filteredAlerts }) 
       value,
     }));
   }, [metricsData]);
+
+  const severityDistributionChartData = useMemo(() => {
+    return severityDistribution.map((item, index) => ({
+      ...item,
+      color: getCategoryColor(item.name, index),
+    }));
+  }, [severityDistribution]);
 
   const topSources = useMemo(() => {
     const sources = {};
@@ -579,15 +630,24 @@ function AnalyticsTab({ alerts, severityCounts, deviceCounts, filteredAlerts }) 
       <div className="charts-row">
         <div className="card chart-card">
           <h3>Severity Distribution</h3>
-          {severityDistribution.length > 0 ? (
+          {severityDistributionChartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
-                <Pie data={severityDistribution} cx="50%" cy="50%" labelLine={false} label dataKey="value">
-                  {["#dc2626", "#f59e0b", "#3b82f6", "#10b981"].map((color, idx) => (
-                    <Cell key={`cell-${idx}`} fill={color} />
+                <Pie
+                  data={severityDistributionChartData}
+                  cx="50%"
+                  cy="45%"
+                  outerRadius={88}
+                  labelLine={false}
+                  dataKey="value"
+                  nameKey="name"
+                >
+                  {severityDistributionChartData.map((entry, idx) => (
+                    <Cell key={`analytics-severity-cell-${idx}`} fill={entry.color} />
                   ))}
                 </Pie>
                 <Tooltip />
+                <Legend verticalAlign="bottom" iconType="circle" formatter={legendLabel} />
               </PieChart>
             </ResponsiveContainer>
           ) : (

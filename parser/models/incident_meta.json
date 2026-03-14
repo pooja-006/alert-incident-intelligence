@@ -1,0 +1,15 @@
+{
+  "threshold": 0.65,
+  "window_minutes": 10,
+  "max_dt_minutes": 240,
+  "label_strategy": "source+organization+alert_type+time_window",
+  "feature_order": [
+    "dt_min",
+    "same_source",
+    "same_org",
+    "same_device",
+    "same_type",
+    "same_severity",
+    "alert_type_cosine"
+  ]
+}
