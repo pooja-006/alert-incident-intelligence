@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import hashlib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -126,8 +127,13 @@ def parse_payload(source: str, payload: Any) -> list[dict[str, Any]]:
             )
 
     elif source_key == "ncentral":
+        if isinstance(payload, list):
+            if not all(isinstance(item, str) for item in payload):
+                raise ValueError("N-Central payload list must contain XML strings only.")
+            payload = "\n".join(payload)
+
         if not isinstance(payload, str):
-            raise ValueError("N-Central payload must be XML text.")
+            raise ValueError("N-Central payload must be XML text or list of XML strings.")
 
         xml_data = re.sub(r"<\?xml.*?\?>", "", payload)
         xml_data = "<root>" + xml_data + "</root>"
@@ -221,3 +227,163 @@ def append_deduped_to_postgres(
         result = conn.execute(insert_sql, records)
 
     return int(result.rowcount or 0)
+
+
+def _incident_id_for_row(row: pd.Series, ts: pd.Timestamp | None, window_minutes: int) -> str:
+    if ts is not None and pd.notna(ts):
+        bucket = int(ts.timestamp()) // (window_minutes * 60)
+    else:
+        bucket = f"raw:{row.get('timestamp', '')}"
+    key = f"{row.get('source', '')}|{row.get('organization', '')}|{row.get('alert_type', '')}|{bucket}"
+    return "inc_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:24]
+
+
+def _highest_severity(values: pd.Series) -> str:
+    rank = {
+        "emergency": 5,
+        "critical": 4,
+        "failed": 3,
+        "warning": 2,
+        "normal": 1,
+    }
+    best = "unknown"
+    best_score = -1
+    for value in values.fillna("").astype(str):
+        key = value.strip().lower()
+        score = rank.get(key, 0)
+        if score > best_score:
+            best = value if value else "unknown"
+            best_score = score
+    return best
+
+
+def append_incident_tables(
+    df: pd.DataFrame,
+    db_url: str,
+    schema: str = "public",
+    correlation_window_minutes: int = 10,
+) -> tuple[int, int]:
+    schema = _validate_identifier(schema, "schema")
+
+    if df.empty:
+        return 0, 0
+
+    work = df.copy()
+    work["ts"] = pd.to_datetime(work["timestamp"], utc=True, errors="coerce", format="mixed")
+    work["incident_id"] = work.apply(
+        lambda row: _incident_id_for_row(row, row["ts"], correlation_window_minutes),
+        axis=1,
+    )
+
+    alerts_ref = f'"{schema}"."alerts_with_incident"'
+    incidents_ref = f'"{schema}"."incidents"'
+
+    alerts_records = work[
+        ["source", "organization", "device", "alert_type", "severity", "timestamp", "incident_id"]
+    ].to_dict(orient="records")
+
+    incident_rows: list[dict[str, Any]] = []
+    for incident_id, group in work.groupby("incident_id", sort=False):
+        ts_vals = group["ts"].dropna()
+        if not ts_vals.empty:
+            start_time = ts_vals.min().strftime("%Y-%m-%dT%H:%M:%SZ")
+            end_time = ts_vals.max().strftime("%Y-%m-%dT%H:%M:%SZ")
+        else:
+            start_time = str(group["timestamp"].iloc[0])
+            end_time = str(group["timestamp"].iloc[-1])
+
+        devices = sorted({str(x) for x in group["device"].fillna("unknown")})
+        device_value = devices[0] if len(devices) == 1 else f"MULTIPLE ({len(devices)} devices)"
+        incident_type = str(group["alert_type"].mode().iloc[0]) if not group["alert_type"].mode().empty else "unknown"
+
+        incident_rows.append(
+            {
+                "incident_id": str(incident_id),
+                "source": str(group["source"].iloc[0]),
+                "organization": str(group["organization"].iloc[0]),
+                "device": device_value,
+                "incident_type": incident_type,
+                "start_time": start_time,
+                "end_time": end_time,
+                "alert_count": int(len(group)),
+                "highest_severity": _highest_severity(group["severity"]),
+                "status": "open",
+            }
+        )
+
+    engine = create_engine(db_url)
+    create_schema_sql = text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+    create_alerts_table_sql = text(
+        f"""
+        CREATE TABLE IF NOT EXISTS {alerts_ref} (
+            source TEXT NOT NULL,
+            organization TEXT NOT NULL,
+            device TEXT NOT NULL,
+            alert_type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            incident_id TEXT
+        )
+        """
+    )
+    create_alerts_idx_sql = text(
+        f"""
+        CREATE UNIQUE INDEX IF NOT EXISTS "alerts_with_incident_uniq_alert"
+        ON {alerts_ref} (source, organization, device, alert_type, severity, timestamp)
+        """
+    )
+    create_incidents_table_sql = text(
+        f"""
+        CREATE TABLE IF NOT EXISTS {incidents_ref} (
+            incident_id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            organization TEXT NOT NULL,
+            device TEXT NOT NULL,
+            incident_type TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            alert_count BIGINT NOT NULL,
+            highest_severity TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+        """
+    )
+
+    upsert_alerts_sql = text(
+        f"""
+        INSERT INTO {alerts_ref} (source, organization, device, alert_type, severity, timestamp, incident_id)
+        VALUES (:source, :organization, :device, :alert_type, :severity, :timestamp, :incident_id)
+        ON CONFLICT (source, organization, device, alert_type, severity, timestamp)
+        DO UPDATE SET incident_id = EXCLUDED.incident_id
+        """
+    )
+
+    upsert_incidents_sql = text(
+        f"""
+        INSERT INTO {incidents_ref}
+        (incident_id, source, organization, device, incident_type, start_time, end_time, alert_count, highest_severity, status)
+        VALUES
+        (:incident_id, :source, :organization, :device, :incident_type, :start_time, :end_time, :alert_count, :highest_severity, :status)
+        ON CONFLICT (incident_id)
+        DO UPDATE SET
+            source = EXCLUDED.source,
+            organization = EXCLUDED.organization,
+            device = EXCLUDED.device,
+            incident_type = EXCLUDED.incident_type,
+            start_time = EXCLUDED.start_time,
+            end_time = EXCLUDED.end_time,
+            alert_count = EXCLUDED.alert_count,
+            highest_severity = EXCLUDED.highest_severity,
+            status = EXCLUDED.status
+        """
+    )
+
+    with engine.begin() as conn:
+        conn.execute(create_schema_sql)
+        conn.execute(create_alerts_table_sql)
+        conn.execute(create_alerts_idx_sql)
+        conn.execute(create_incidents_table_sql)
+        r1 = conn.execute(upsert_alerts_sql, alerts_records)
+        r2 = conn.execute(upsert_incidents_sql, incident_rows)
+
+    return int(r1.rowcount or 0), int(r2.rowcount or 0)

@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, text
 
 from parser.pipeline_service import (
     append_deduped_to_postgres,
+    append_incident_tables,
     build_db_url,
     dedupe_alerts,
     load_dotenv,
@@ -19,7 +20,13 @@ from parser.pipeline_service import (
 
 class IngestRequest(BaseModel):
     source: Literal["meraki", "auvik", "ncentral"]
-    payload: Any = Field(..., description="Vendor payload: JSON object/list for meraki/auvik, XML string for ncentral")
+    payload: Any = Field(
+        ...,
+        description=(
+            "Vendor payload batch: JSON object/list for meraki/auvik, "
+            "XML string or list of XML strings for ncentral"
+        ),
+    )
     db_url: str | None = Field(default=None, description="Optional DB URL override")
     table: str = Field(default="stitched_alerts_dedup")
     target_schema: str = Field(default="public")
@@ -50,7 +57,10 @@ def health() -> dict[str, str]:
 
 @app.post("/ingest")
 def ingest_alerts(req: IngestRequest) -> dict[str, Any]:
+    incident_alert_rows = 0
+    incident_rows = 0
     try:
+        # Backend pipeline stages: normalize vendor payload -> dedupe -> persist.
         parsed = parse_payload(req.source, req.payload)
         deduped_df = dedupe_alerts(parsed)
         db_url = build_db_url(req.db_url)
@@ -60,6 +70,13 @@ def ingest_alerts(req: IngestRequest) -> dict[str, Any]:
             table=req.table,
             schema=req.target_schema,
         )
+
+        if req.table == "stitched_alerts_dedup":
+            incident_alert_rows, incident_rows = append_incident_tables(
+                deduped_df,
+                db_url=db_url,
+                schema=req.target_schema,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover - safety net for API responses
@@ -67,9 +84,12 @@ def ingest_alerts(req: IngestRequest) -> dict[str, Any]:
 
     return {
         "source": req.source,
+        "pipeline": ["parse", "dedupe", "persist"],
         "received": len(parsed),
         "deduped_batch": int(len(deduped_df)),
         "inserted": inserted,
+        "alerts_with_incident_upserts": incident_alert_rows,
+        "incident_upserts": incident_rows,
         "table": f"{req.target_schema}.{req.table}",
     }
 
@@ -97,6 +117,54 @@ def fetch_alerts(
         LIMIT :limit OFFSET :offset
         """
     )
+    with engine.connect() as conn:
+        rows = conn.execute(query, {"limit": limit, "offset": offset}).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def fetch_alerts_with_ml(
+    *,
+    db_url: str,
+    schema: str = "public",
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    if limit < 1:
+        raise ValueError("limit must be >= 1")
+    if offset < 0:
+        raise ValueError("offset must be >= 0")
+
+    engine = create_engine(db_url)
+    stitched_ref = f'"{schema}"."stitched_alerts_dedup"'
+    alerts_ref = f'"{schema}"."alerts_with_incident"'
+    incidents_ref = f'"{schema}"."incidents"'
+    query = text(
+        f"""
+        SELECT
+            s.source,
+            s.organization,
+            s.device,
+            s.alert_type,
+            s.severity,
+            s.timestamp,
+            a.incident_id,
+            i.incident_type,
+            i.status
+        FROM {stitched_ref} s
+        LEFT JOIN {alerts_ref} a
+          ON s.source = a.source
+         AND s.organization = a.organization
+         AND s.device = a.device
+         AND s.alert_type = a.alert_type
+         AND s.severity = a.severity
+         AND s.timestamp = a.timestamp
+        LEFT JOIN {incidents_ref} i
+          ON a.incident_id = i.incident_id
+        ORDER BY s.timestamp DESC
+        LIMIT :limit OFFSET :offset
+        """
+    )
+
     with engine.connect() as conn:
         rows = conn.execute(query, {"limit": limit, "offset": offset}).mappings().all()
     return [dict(row) for row in rows]
@@ -138,6 +206,19 @@ def list_alerts(limit: int = 100, offset: int = 0, table: str = "stitched_alerts
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"Failed to fetch alerts: {exc}") from exc
+
+    return {"count": len(records), "items": records}
+
+
+@app.get("/alerts/ml")
+def list_alerts_ml(limit: int = 100, offset: int = 0, schema: str = "public", db_url: str | None = None) -> dict[str, Any]:
+    try:
+        url = build_db_url(db_url)
+        records = fetch_alerts_with_ml(db_url=url, schema=schema, limit=limit, offset=offset)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Failed to fetch ML alerts: {exc}") from exc
 
     return {"count": len(records), "items": records}
 
