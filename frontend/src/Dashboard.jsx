@@ -7,6 +7,8 @@ import {
 import AlertsSidebar from "./AlertsSidebar";
 
 const API_BASE = "http://localhost:8000";
+const ALERT_FETCH_LIMIT = 5000;
+const DASHBOARD_REFRESH_MS = 7000;
 
 const FALLBACK_PIE_COLORS = ["#2563eb", "#7c3aed", "#0ea5e9", "#22c55e", "#f59e0b", "#ef4444", "#14b8a6", "#f97316"];
 const SEVERITY_COLOR_MAP = {
@@ -316,6 +318,8 @@ function AlertsTab({ alerts, severityCounts, deviceCounts, filteredAlerts }) {
                 <th>Device</th>
                 <th>Alert Type</th>
                 <th>Severity</th>
+                <th>Incident ID</th>
+                <th>Incident Type</th>
                 <th>Timestamp</th>
                 <th>Status</th>
               </tr>
@@ -332,12 +336,14 @@ function AlertsTab({ alerts, severityCounts, deviceCounts, filteredAlerts }) {
                         {alert.severity || "—"}
                       </span>
                     </td>
+                    <td className="source">{alert.incident_id || "—"}</td>
+                    <td className="alert-type">{alert.incident_type || "—"}</td>
                     <td className="timestamp">{new Date(alert.timestamp).toLocaleString()}</td>
-                    <td><span className="badge-active">Active</span></td>
+                    <td><span className="badge-active">{alert.status || "Active"}</span></td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan="6" style={{ textAlign: "center", padding: "20px" }}>No alerts found</td></tr>
+                <tr><td colSpan="8" style={{ textAlign: "center", padding: "20px" }}>No alerts found</td></tr>
               )}
             </tbody>
           </table>
@@ -680,12 +686,14 @@ export default function Dashboard({ onLogout }) {
 
   useEffect(() => {
     const client = axios.create({ baseURL: API_BASE });
-    const loadData = async () => {
-      setLoading(true);
+    const loadData = async (silent = false) => {
+      if (!silent) {
+        setLoading(true);
+      }
       setError("");
       try {
         const [alertsRes, severityRes, deviceRes] = await Promise.all([
-          client.get("/alerts", { params: { limit: 500 } }),
+          client.get("/alerts/ml", { params: { limit: ALERT_FETCH_LIMIT } }).catch(() => client.get("/alerts", { params: { limit: ALERT_FETCH_LIMIT } })),
           client.get("/alerts/severity"),
           client.get("/alerts/device"),
         ]);
@@ -698,10 +706,20 @@ export default function Dashboard({ onLogout }) {
         console.error("Error loading data:", err);
         setError("Unable to load data. Make sure the backend is running on http://localhost:8000");
       } finally {
-        setLoading(false);
+        if (!silent) {
+          setLoading(false);
+        }
       }
     };
-    loadData();
+
+    loadData(false);
+    const intervalId = window.setInterval(() => {
+      loadData(true);
+    }, DASHBOARD_REFRESH_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   // Handle sidebar resize
